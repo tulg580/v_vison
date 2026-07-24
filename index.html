@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1a1a1a; }
+        canvas { width: 100vw; height: 100vh; display: block; }
+    </style>
+    <!-- Three.js 및 VRM 로더 CDN import -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+            "@pixiv/three-vrm": "https://unpkg.com/@pixiv/three-vrm@3.0.0/lib/three-vrm.module.js"
+        }
+    }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+        let currentVrm = null;
+
+        // 1. Scene / Camera / Renderer 설정
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 20.0);
+        camera.position.set(0.0, 1.3, 1.5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // 조명
+        const light = new THREE.DirectionalLight(0xffffff, 1.0);
+        light.position.set(1.0, 1.0, 1.0).normalize();
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+
+        // 2. VRM 모델 로드
+        const loader = new GLTFLoader();
+        loader.register((parser) => new VRMLoaderPlugin(parser));
+
+        // 로컬 VRM 파일 경로 (같은 폴더에 avatar.vrm 준비)
+        loader.load(
+            './avatar.vrm',
+            (gltf) => {
+                const vrm = gltf.userData.vrm;
+                VRMUtils.rotateVRM0(vrm);
+                scene.add(vrm.scene);
+                currentVrm = vrm;
+                console.log("VRM Model Loaded Successfully!");
+            },
+            (progress) => {
+                // 로딩 진행률 (디버깅용)
+                if (progress.total > 0) {
+                    console.log(`Loading avatar.vrm: ${((progress.loaded / progress.total) * 100).toFixed(0)}%`);
+                }
+            },
+            (error) => {
+                // 로드 실패 시 원인 파악용. file:// 환경에서 CORS로 막히는 경우 여기서 잡힘.
+                console.error('VRM load failed:', error);
+            }
+        );
+
+        // 3. Python에서 호출할 관절 업데이트 함수
+        window.updateBoneRotation = function (boneName, qx, qy, qz, qw) {
+            if (!currentVrm) return;
+
+            // getRawBoneNode 대신 getNormalizedBoneNode 사용.
+            // raw bone에 직접 값을 넣으면 humanoid.autoUpdateHumanBones(기본 true)가
+            // 매 프레임 normalized -> raw 동기화를 하면서 방금 넣은 값을 덮어써버림.
+            // normalized bone에 값을 넣으면 이 동기화 방향과 일치해서 정상적으로 반영됨.
+            const boneNode = currentVrm.humanoid.getNormalizedBoneNode(boneName);
+            if (boneNode) {
+                boneNode.quaternion.set(qx, qy, qz, qw);
+            }
+        };
+
+        // 렌더 루프
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            if (currentVrm) {
+                currentVrm.update(clock.getDelta());
+            }
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // 창 크기 조절 대응
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
