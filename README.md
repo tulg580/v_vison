@@ -6,18 +6,17 @@ OAK-D Lite 카메라로 Pose/Hand 랜드마크를 추출해서 VRM 아바타에 
 ## 현재 상태
 
 - ✅ OAK-D Lite 카메라 파이프라인 (DepthAI) 구축
-- ✅ 회전값(Quaternion) 전송 방식 두 가지 구현
-  - VMC Protocol(OSC/UDP)로 외부 프로그램(VSeeFace 등)에 전송
-  - PySide6 + Three.js/VRM 렌더러를 한 프로세스에 통합해 자체 렌더링
+- ✅ PySide6 + Three.js/VRM 렌더러를 한 프로세스에 통합한 자체 렌더링 파이프라인 (`app.py` + `index.html`)
 - ⬜ 실제 Pose/Hand 랜드마크 추출 (BlazePose/MediaPipe 등 NN 노드) — 미구현, 더미 데이터로 대체 중
-- ⬜ 카메라 좌표계 → VRM/Unity 좌표계 변환
+- ⬜ 카메라 좌표계 → VRM 좌표계 변환
 - ⬜ Roll 축을 포함한 본 회전 계산 (Kalidokit 방식 등 검토 필요)
+
+> 외부 VMC 수신 프로그램(VSeeFace 등)은 사용하지 않고, `app.py`가 자체적으로 Three.js/VRM 렌더러를 띄워 아바타를 표시하는 구조입니다.
 
 ## 구성 파일
 
 | 파일 | 설명 |
 |---|---|
-| `vmc_sender.py` | OAK-D Lite에서 뽑은(예정인) 랜드마크를 VMC Protocol(OSC/UDP)로 외부 프로그램에 전송하는 독립 스크립트. `cv2.imshow`로 RGB 프리뷰도 같이 띄움. |
 | `app.py` | OAK-D 트래킹 스레드 + PySide6 GUI + WebEngine 기반 Three.js 렌더러를 한 프로세스로 통합한 메인 실행 파일. |
 | `index.html` | `app.py`가 띄우는 `QWebEngineView`에서 로드되는 3D 렌더러. Three.js + `@pixiv/three-vrm`으로 VRM 모델을 표시하고, Python에서 넘어온 본 회전값을 실시간 반영. |
 | `avatar.vrm` | (직접 준비) `index.html`과 같은 폴더에 위치해야 하는 VRM 아바타 모델 파일. 저장소에는 포함되어 있지 않음. |
@@ -33,37 +32,25 @@ OAK-D Lite 카메라로 Pose/Hand 랜드마크를 추출해서 VRM 아바타에 
         ▼
 [본 회전 계산 (Quaternion)]
         │
-        ├─▶ vmc_sender.py 사용 시 ──▶ OSC/UDP ──▶ VSeeFace 등 외부 VMC 수신 프로그램
-        │
-        └─▶ app.py 사용 시 ──▶ Qt Signal ──▶ QWebEngineView.runJavaScript()
-                                                        │
-                                                        ▼
-                                          index.html (Three.js + VRM 렌더링)
+        ▼
+[TrackingThread] ──▶ Qt Signal ──▶ QWebEngineView.runJavaScript()
+                                              │
+                                              ▼
+                                index.html (Three.js + VRM 렌더링)
 ```
 
-두 방식은 서로 대체 관계입니다. 외부 VSeeFace/VMC 호환 프로그램을 쓸 거면 `vmc_sender.py`만, 자체 렌더러로 완결하고 싶으면 `app.py` + `index.html` 조합을 사용합니다.
+카메라 트래킹부터 렌더링까지 전부 한 프로세스(`app.py`) 안에서 처리되며, 외부 프로그램으로 데이터를 내보내지 않습니다.
 
 ## 요구 사항
 
 ```
-pip install depthai opencv-python python-osc PySide6 PySide6-WebEngine
+pip install depthai opencv-python PySide6 PySide6-WebEngine
 ```
 
 - Node.js/npm 불필요 (Three.js, three-vrm은 CDN(unpkg)에서 importmap으로 로드)
 - Python 3.9+ 권장
 
 ## 실행 방법
-
-### 1) VMC 전송 방식 (`vmc_sender.py`)
-
-```bash
-python vmc_sender.py
-```
-
-- 기본적으로 `127.0.0.1:39539`로 OSC 메시지 전송 (VSeeFace 기본 VMC 수신 포트)
-- 대상 IP/포트는 VSeeFace 쪽 VMC 설정과 일치시켜야 함
-
-### 2) 자체 렌더러 방식 (`app.py`)
 
 1. `avatar.vrm` 파일을 `app.py`, `index.html`과 같은 폴더에 준비
 2. 실행
@@ -87,5 +74,4 @@ python app.py
 - [ ] `SpatialLocationCalculator` 또는 depth 맵을 이용한 2D→3D 좌표 변환
 - [ ] 카메라 좌표계 → VRM 좌표계 변환 함수 작성
 - [ ] Kalidokit 등을 참고한 roll 축 포함 본 회전 계산
-- [ ] VMC Protocol `/VMC/Ext/OK`, `/VMC/Ext/Root/Pos` 등 상태 메시지 추가 전송
 - [ ] 양팔/전신으로 본 확장
